@@ -77,8 +77,11 @@
 #define D_CMND_DIAGNOSTICMODESET "DiagnosticModeSet"
 #define D_CMND_CTRDUTYCYCLEREAD "CtrDutyCycleRead"
 #define D_CMND_ENABLEOUTPUTSET "EnableOutputSet"
+#define D_CMND_WORKDAYSCHEDULESET "WorkdayScheduleSet"
+#define D_CMND_HOLIDAYSCHEDULESET "HolidayScheduleSet"
+#define D_CMND_WEEKSET "ThermostatWeekSet"
 
-enum ThermostatModes { THERMOSTAT_OFF, THERMOSTAT_AUTOMATIC_OP, THERMOSTAT_MANUAL_OP, THERMOSTAT_MODES_MAX };
+enum ThermostatModes { THERMOSTAT_OFF, THERMOSTAT_AUTOMATIC_OP, THERMOSTAT_MANUAL_OP, THERMOSTAT_SCHEDULE_OP };
 #ifdef USE_PI_AUTOTUNING
 enum ControllerModes { CTR_HYBRID, CTR_PI, CTR_RAMP_UP, CTR_PI_AUTOTUNE, CTR_MODES_MAX };
 enum ControllerHybridPhases { CTR_HYBRID_RAMP_UP, CTR_HYBRID_PI, CTR_HYBRID_PI_AUTOTUNE };
@@ -119,6 +122,7 @@ enum ThermostatSupportedOutputRelays {
   THERMOSTAT_OUTPUT_REL7,
   THERMOSTAT_OUTPUT_REL8
 };
+enum ScheduleWeek {WEEK_5_2, WEEK_6_1, WEEK_7, WEEK_MAX};
 
 typedef union {
   uint32_t data;
@@ -157,14 +161,30 @@ typedef union {
   };
 } ThermostatDiagBitfield;
 
+typedef union {
+  uint8_t data;
+  struct {
+    uint8_t week : 2;       // schedule workdays+holidays (0 - 5+2, 1 - 6+1, 3 - 7)
+  };
+} ThermostatStateBitfield2;
+
+typedef union {
+  uint16_t data;
+  struct {
+    uint8_t hour : 5;
+    uint8_t ten_minute : 3;
+    uint8_t temp_target_level : 8;
+  };
+} ThermostatScheduleItem;
+
 #ifdef DEBUG_THERMOSTAT
 const char DOMOTICZ_MES[] PROGMEM = "{\"idx\":%d,\"nvalue\":%d,\"svalue\":\"%s\"}";
 uint16_t Domoticz_Virtual_Switches[DOMOTICZ_MAX_IDX] = { DOMOTICZ_IDX1, DOMOTICZ_IDX3, DOMOTICZ_IDX4, DOMOTICZ_IDX5 };
 #endif // DEBUG_THERMOSTAT
 
-const char kThermostatCommands[] PROGMEM = "|" D_CMND_THERMOSTATMODESET "|" D_CMND_CLIMATEMODESET "|"
-  D_CMND_TEMPFROSTPROTECTSET "|" D_CMND_CONTROLLERMODESET "|" D_CMND_INPUTSWITCHSET "|" D_CMND_INPUTSWITCHUSE "|"
-  D_CMND_OUTPUTRELAYSET "|" D_CMND_TIMEALLOWRAMPUPSET "|" D_CMND_TEMPFORMATSET "|" D_CMND_TEMPMEASUREDSET "|"
+const char kThermostatCommands[] PROGMEM = "|" D_CMND_THERMOSTATMODESET "|" D_CMND_WEEKSET "|" D_CMND_WORKDAYSCHEDULESET "|"
+  D_CMND_HOLIDAYSCHEDULESET "|" D_CMND_CLIMATEMODESET "|" D_CMND_TEMPFROSTPROTECTSET "|" D_CMND_CONTROLLERMODESET "|" D_CMND_INPUTSWITCHSET "|"
+  D_CMND_INPUTSWITCHUSE "|" D_CMND_OUTPUTRELAYSET "|" D_CMND_TIMEALLOWRAMPUPSET "|" D_CMND_TEMPFORMATSET "|" D_CMND_TEMPMEASUREDSET "|"
   D_CMND_TEMPTARGETSET "|" D_CMND_TEMPMEASUREDGRDREAD "|" D_CMND_SENSORINPUTSET "|" D_CMND_STATEEMERGENCYSET "|"
   D_CMND_TIMEMANUALTOAUTOSET "|" D_CMND_PROPBANDSET "|" D_CMND_TIMERESETSET "|" D_CMND_TIMEPICYCLESET "|"
 #ifdef USE_PI_AUTOTUNING
@@ -178,7 +198,7 @@ const char kThermostatCommands[] PROGMEM = "|" D_CMND_THERMOSTATMODESET "|" D_CM
   D_CMND_ENABLEOUTPUTSET;
 
 void (* const ThermostatCommand[])(void) PROGMEM = {
-  &CmndThermostatModeSet, &CmndClimateModeSet, &CmndTempFrostProtectSet, &CmndControllerModeSet, &CmndInputSwitchSet,
+  &CmndThermostatModeSet, &CmndThermostatWeekSet, &CmndThermostatScheduleSet, &CmndThermostatScheduleSet, &CmndClimateModeSet, &CmndTempFrostProtectSet, &CmndControllerModeSet, &CmndInputSwitchSet,
   &CmndInputSwitchUse, &CmndOutputRelaySet, &CmndTimeAllowRampupSet, &CmndTempFormatSet, &CmndTempMeasuredSet,
   &CmndTempTargetSet, &CmndTempMeasuredGrdRead, &CmndSensorInputSet, &CmndStateEmergencySet, &CmndTimeManualToAutoSet,
   &CmndPropBandSet, &CmndTimeResetSet, &CmndTimePiCycleSet, &CmndTempAntiWindupResetSet, &CmndTempHystSet,
@@ -238,6 +258,9 @@ struct THERMOSTAT {
   uint8_t temp_reset_anti_windup = THERMOSTAT_TEMP_RESET_ANTI_WINDUP;         // Range where reset antiwindup is disabled, in tenths of degrees celsius
   int8_t temp_hysteresis = THERMOSTAT_TEMP_HYSTERESIS;                        // Range hysteresis for temperature PI controller, in tenths of degrees celsius
   ThermostatDiagBitfield diag;                                                // Bittfield including diagnostic flags
+  ThermostatStateBitfield2 status2;
+  ThermostatScheduleItem workdaySchedule[THERMOSTAT_SCHEDULE_SLOTS];          // Workday schedule
+  ThermostatScheduleItem holidaySchedule[THERMOSTAT_SCHEDULE_SLOTS];          // Holiday schedule
 #ifdef USE_PI_AUTOTUNING
   uint8_t dutycycle_step_autotune = THERMOSTAT_DUTYCYCLE_AUTOTUNE;            // Duty cycle for the step response of the autotune PI function in %
   uint8_t peak_ctr = 0;                                                       // Peak counter for the autotuning function
@@ -286,6 +309,15 @@ void ThermostatInit(uint8_t ctr_output)
   // Make sure the Output is OFF
   if (Thermostat[ctr_output].status.enable_output == IFACE_ON) {
     ExecuteCommandPower(Thermostat[ctr_output].status.output_relay_number, POWER_OFF, SRC_THERMOSTAT);
+  }
+  Thermostat[ctr_output].status2.week = WEEK_5_2;
+  ThermostatScheduleItem tempSchItem;
+  for(uint8_t i = 0; i < THERMOSTAT_SCHEDULE_SLOTS; i++) {
+    tempSchItem.temp_target_level = THERMOSTAT_TEMP_INIT;
+    tempSchItem.hour = i*24/(THERMOSTAT_SCHEDULE_SLOTS);
+    tempSchItem.ten_minute = 0;
+    Thermostat[ctr_output].workdaySchedule[i].data = tempSchItem.data;
+    Thermostat[ctr_output].holidaySchedule[i].data = tempSchItem.data;
   }
 }
 
@@ -564,8 +596,9 @@ void ThermostatState(uint8_t ctr_output)
     case THERMOSTAT_OFF:
       // No change of state possible without external command
       break;
-    // State automatic, thermostat active following the command target temp.
+    // State automatic or schedule, thermostat active following the command or schedule target temp.
     case THERMOSTAT_AUTOMATIC_OP:
+    case THERMOSTAT_SCHEDULE_OP:
       if (ThermostatStateAutoToManual(ctr_output)) {
         // If sensor not alive change to THERMOSTAT_MANUAL_OP
         Thermostat[ctr_output].status.thermostat_mode = THERMOSTAT_MANUAL_OP;
@@ -1186,6 +1219,44 @@ void ThermostatCtrWork(uint8_t ctr_output)
   }
 }
 
+#define isLaterM(h1, m1, h2, m2) (h1>h2)?true:(h1<h2)?false:(m1>m2)?true:false
+
+void ThermostatScheduler(uint8_t ctr_output)
+{
+  uint8_t i;
+  ThermostatScheduleItem tempSchedulItem;
+
+  bool useHoliday = false;
+
+  if( Thermostat[ctr_output].status2.week < WEEK_7 ) // assuming 7 means all workdays ... not sure how tuya handles that
+  {
+    if( (RtcTime.day_of_week == 7 && Thermostat[ctr_output].status2.week==WEEK_5_2) || //saturday
+          (RtcTime.day_of_week == 1) ) {
+      useHoliday = true;
+    }
+  }
+
+  //set last in case time is between first and last
+  if( !useHoliday )
+  {
+    Thermostat[ctr_output].temp_target_level = Thermostat[ctr_output].workdaySchedule[THERMOSTAT_SCHEDULE_SLOTS-1].temp_target_level;
+  } else {
+    Thermostat[ctr_output].temp_target_level = Thermostat[ctr_output].holidaySchedule[THERMOSTAT_SCHEDULE_SLOTS-1].temp_target_level;
+  }
+  for(i = THERMOSTAT_SCHEDULE_SLOTS; i>0; i--) {
+      if( !useHoliday )
+      {
+        tempSchedulItem.data = Thermostat[ctr_output].workdaySchedule[i-1].data;
+      } else {
+        tempSchedulItem.data = Thermostat[ctr_output].holidaySchedule[i-1].data;
+      }
+    if(isLaterM(RtcTime.hour, RtcTime.minute, tempSchedulItem.hour, tempSchedulItem.ten_minute*10)){
+      Thermostat[ctr_output].temp_target_level = tempSchedulItem.temp_target_level;
+      break;
+    }
+  }
+}
+
 void ThermostatWork(uint8_t ctr_output)
 {
   switch (Thermostat[ctr_output].status.thermostat_mode) {
@@ -1196,7 +1267,10 @@ void ThermostatWork(uint8_t ctr_output)
     // State automatic thermostat active following to command target temp.
     case THERMOSTAT_AUTOMATIC_OP:
       ThermostatCtrWork(ctr_output);
-
+      break;
+    case THERMOSTAT_SCHEDULE_OP:
+      ThermostatScheduler(ctr_output);
+      ThermostatCtrWork(ctr_output);
       break;
     // State manual operation following input switch
     case THERMOSTAT_MANUAL_OP:
@@ -1396,7 +1470,7 @@ void CmndThermostatModeSet(void)
     uint8_t ctr_output = XdrvMailbox.index - 1;
     if (XdrvMailbox.data_len > 0) {
       uint8_t value = (uint8_t)(CharToFloat(XdrvMailbox.data));
-      if ((value >= THERMOSTAT_OFF) && (value < THERMOSTAT_MODES_MAX)) {
+      if ((value >= THERMOSTAT_OFF) && (value <= THERMOSTAT_SCHEDULE_OP)) {
         Thermostat[ctr_output].status.thermostat_mode = value;
         Thermostat[ctr_output].timestamp_input_on = 0;     // Reset last manual switch timer if command set externally
       }
@@ -1408,6 +1482,78 @@ void CmndThermostatModeSet(void)
       }
     }
     ResponseCmndIdxNumber((int)Thermostat[ctr_output].status.thermostat_mode);
+  }
+}
+
+void CmndThermostatWeekSet(void)
+{
+  if ((XdrvMailbox.index > 0) && (XdrvMailbox.index <= THERMOSTAT_CONTROLLER_OUTPUTS)) {
+    uint8_t ctr_output = XdrvMailbox.index - 1;
+    if (XdrvMailbox.data_len > 0) {
+      uint8_t value = (uint8_t)(CharToFloat(XdrvMailbox.data));
+      if ((value >= WEEK_5_2) && (value < WEEK_MAX)) {
+        Thermostat[ctr_output].status2.week = value;
+      }
+    }
+    ResponseCmndIdxNumber((int)Thermostat[ctr_output].status2.week);
+  }
+}
+
+void CmndThermostatScheduleSet(void)
+{
+  if ((XdrvMailbox.index > 0) && (XdrvMailbox.index <= THERMOSTAT_CONTROLLER_OUTPUTS)) {
+    uint8_t ctr_output = XdrvMailbox.index - 1;
+    char *str1, *str2, *itemtoken, *reststoken;
+    char *saveptr1, *saveptr2;
+    ThermostatScheduleItem tempSchItem;
+
+    if (XdrvMailbox.data_len > 0) {
+      int j;
+      for (j = 0, str1 = XdrvMailbox.data; ; j++, str1 = NULL) {
+        itemtoken = strtok_r(str1, " ", &saveptr1);
+        if (itemtoken == NULL)
+            break;
+        reststoken = strtok_r(itemtoken, ":/", &saveptr2);
+        uint32_t hours = strtoul(reststoken, nullptr, 10); //read hours
+        tempSchItem.hour = hours;
+        if (reststoken != NULL) {
+          reststoken = strtok_r(NULL, ":/", &saveptr2);
+          if (reststoken != NULL) {
+            uint32_t minutes = strtoul(reststoken, nullptr, 10); //read minuets
+            tempSchItem.ten_minute = minutes / 10;
+            reststoken = strtok_r(NULL, ":/", &saveptr2);
+            if (reststoken != NULL) {
+              float temperature = strtof(reststoken, nullptr); //read temperature
+              tempSchItem.temp_target_level = temperature * 10;
+            }
+          }
+        }
+        if(strcmp(XdrvMailbox.command,  D_CMND_WORKDAYSCHEDULESET))
+        {
+          Thermostat[ctr_output].holidaySchedule[j].data = tempSchItem.data;
+        } else {
+          Thermostat[ctr_output].workdaySchedule[j].data = tempSchItem.data;
+        }
+      }
+    }
+
+    Response_P(PSTR("{\"%s%d\":\""), XdrvMailbox.command, XdrvMailbox.index);
+    float tempFloat;
+    for (uint8_t i = 0; i < THERMOSTAT_SCHEDULE_SLOTS; i++) {
+      if(strcmp(XdrvMailbox.command,  D_CMND_WORKDAYSCHEDULESET))
+      {
+        tempSchItem.data = Thermostat[ctr_output].holidaySchedule[i].data;
+      } else {
+        tempSchItem.data = Thermostat[ctr_output].workdaySchedule[i].data;
+      }
+      tempFloat = (float)(tempSchItem.temp_target_level)/10;
+      ResponseAppend_P(PSTR("%02d:%02d/%1_f "),
+          tempSchItem.hour,
+          tempSchItem.ten_minute*10,
+          &tempFloat);
+    }
+    ResponseAppend_P(PSTR("\""));
+    ResponseJsonEnd();
   }
 }
 
@@ -2032,9 +2178,12 @@ void ThermostatShow(uint8_t ctr_output, bool json)
 {
   if (json) {
     float f_target_temp = Thermostat[ctr_output].temp_target_level / 10.0f;
+    float f_measured_temp = Thermostat[ctr_output].temp_measured / 10.0f;
+
     ResponseAppend_P(PSTR(",\"Thermostat%i\":{"), ctr_output);
     ResponseAppend_P(PSTR("%s\"%s\":%i"), "", D_CMND_THERMOSTATMODESET, Thermostat[ctr_output].status.thermostat_mode);
     ResponseAppend_P(PSTR("%s\"%s\":%2_f"), ",", D_CMND_TEMPTARGETSET, &f_target_temp);
+    ResponseAppend_P(PSTR("%s\"%s\":%2_f"), ",", D_CMND_TEMPMEASUREDSET, &f_measured_temp);
     ResponseAppend_P(PSTR("%s\"%s\":%i"), ",", D_CMND_CTRDUTYCYCLEREAD, ThermostatGetDutyCycle(ctr_output));
     ResponseJsonEnd();
     return;
