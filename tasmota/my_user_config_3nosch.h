@@ -507,9 +507,9 @@
 #define USE_RULES                                // Add support for rules (+8k code)
   #define USE_EXPRESSION                         // Add support for expression evaluation in rules (+3k2 code, +64 bytes mem)
   #define SUPPORT_IF_STATEMENT                 // Add support for IF statement in rules (+4k2 code, -332 bytes mem)
-  #define USER_RULE1 "ON Power1#boot DO Backlog thermostatmodeset1 3; thermostatmodeset2 3; thermostatmodeset3 3; tempmeasuredset1 21; temptargetset1 21; tempmeasuredset2 21; workdayscheduleset1 06:25/25 07:45/25 08:50/25 09:10/25 ENDON"          // Add rule1 data saved at initial firmware load or when command reset is executed
+  #define USER_RULE1 "ON Power1#boot DO Backlog thermostatmodeset1 1; thermostatmodeset2 1; thermostatmodeset3 1; tempmeasuredset1 %mem1%; temptargetset1 %mem1%; tempmeasuredset2 %mem2%; temptargetset2 %mem2%; tempmeasuredset3 %mem3%; temptargetset3 %mem3%; ENDON ON temptargetset1#data DO Backlog mem1 %value%; Teleperiod; ENDON ON temptargetset2#data DO Backlog mem2 %value%; Teleperiod; ENDON ON temptargetset3#data DO Backlog mem3 %value%; Teleperiod; ENDON"          // Add rule1 data saved at initial firmware load or when command reset is executed
   #define USER_RULE2 "ON ThermostatModeSet1#data DO Teleperiod; ENDON ON ThermostatModeSet2#data DO Teleperiod; ENDON ON ThermostatModeSet3#data DO Teleperiod; ENDON"          // Add rule2 data saved at initial firmware load or when command reset is executed
-  #define USER_RULE3 ""          // Add rule3 data saved at initial firmware load or when command reset is executed
+//  #define USER_RULE3 "<Any rule3 data>"          // Add rule3 data saved at initial firmware load or when command reset is executed
 
 //#define USE_SCRIPT                               // Add support for script (+17k code)
 //  #define USE_SCRIPT_FATFS 4                     // Script: Add FAT FileSystem Support
